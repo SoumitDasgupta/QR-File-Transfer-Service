@@ -1,57 +1,74 @@
-# QRStream - Optical File Transfer
+# QRStream — Optical File Transfer
 
-QRStream is a modern, offline-capable Progressive Web App (PWA) that allows you to seamlessly transfer files between devices without requiring an internet connection or a shared Wi-Fi network. It utilizes WebRTC for direct peer-to-peer data transfer, which you can easily initiate by scanning a QR code or entering a connection ID.
+QRStream is a fast, offline-capable Progressive Web App (PWA) for transferring files directly between devices — no internet connection, no shared Wi-Fi, and no server storing your data. It uses WebRTC for direct peer-to-peer transfer, initiated by scanning a QR code or entering a connection ID.
 
-## 🚀 Features
+**Live App:** [soumitdasgupta.github.io/QR-File-Transfer-Service](https://soumitdasgupta.github.io/QR-File-Transfer-Service/)
 
-- **Peer-to-Peer Transfer:** Uses WebRTC to send files directly from device to device. No servers store your files.
-- **Offline First:** Fully functional without the internet once installed. Acts as a Progressive Web App (PWA) so you can "Add to Home Screen".
-- **Optical Connection:** Start transfers instantly by scanning a QR code with the receiver's device camera.
-- **Large File Support:** Automatically chunks large files for reliable, high-speed transfer.
-- **Cross-Platform:** Works on any modern browser (iOS, Android, Windows, Mac, Linux).
-- **Secure:** Files never leave your local network or the direct device-to-device connection.
+---
 
-## 🔗 Live Demo
+## Features
 
-Access the live app hosted on GitHub Pages:
-**[https://xyzayush0.github.io/QR-FILE_TRANSFER/](https://xyzayush0.github.io/QR-FILE_TRANSFER/)**
+- **Peer-to-Peer Transfer** — Files move directly device-to-device over WebRTC. Nothing is uploaded to or stored on a server.
+- **Offline-First** — Installs as a PWA ("Add to Home Screen") and works fully offline once loaded.
+- **Optical Pairing** — Start a transfer instantly by scanning a QR code with the receiver's camera.
+- **Large File Support** — Files are automatically chunked for reliable, high-speed transfer.
+- **Cross-Platform** — Works in any modern browser on iOS, Android, Windows, macOS, and Linux.
+- **Private by Design** — Data stays on your local network or moves directly between the two connected devices.
 
-## 📱 How to Use Offline (PWA)
+---
 
-1. Open the [live demo](https://xyzayush0.github.io/QR-FILE_TRANSFER/) on your phone or desktop.
-2. When prompted, select **"Install App"** or **"Add to Home Screen"**.
-3. Launch the app from your home screen.
-4. You can now use it to transfer files even when you have no internet access!
+## Tech Stack
 
-## 🛠️ Tech Stack
+| Layer | Technology |
+|---|---|
+| UI Framework | React 19 |
+| Build Tool | Vite |
+| Styling | Tailwind CSS, Lucide React |
+| P2P Transport | PeerJS (WebRTC) |
+| QR Scanning | html5-qrcode |
+| Offline Support | vite-plugin-pwa (Service Workers) |
 
-- **React 19**
-- **Vite**
-- **Tailwind CSS** / **Lucide React** (for modern, dynamic UI)
-- **PeerJS** (WebRTC abstraction)
-- **html5-qrcode** (QR code scanning)
-- **vite-plugin-pwa** (Service Workers and Offline Support)
+---
 
-## 💻 Development
+## Using QRStream Offline (PWA)
+
+1. Open the [live app](https://soumitdasgupta.github.io/QR-File-Transfer-Service/) on your phone or desktop.
+2. When prompted, select **Install App** or **Add to Home Screen**.
+3. Launch it from your home screen going forward.
+4. The app now works even without an internet connection for the transfer itself.
+
+---
+
+## Local Development
 
 ### Prerequisites
-- Node.js (v16 or higher)
+- Node.js v16 or higher
 
 ### Setup
+
 ```bash
-git clone https://github.com/xyzayush0/QR-FILE_TRANSFER.git
-cd QR-FILE_TRANSFER
+git clone https://github.com/SoumitDasgupta/QR-File-Transfer-Service.git
+cd QR-File-Transfer-Service
 npm install
 npm run dev
 ```
 
-### Build & Deploy
-To build for production:
+The dev server will start at `http://localhost:5173`.
+
+### Build for Production
+
 ```bash
 npm run build
 ```
 
-To deploy to GitHub Pages:
+### Deploy to GitHub Pages
+
 ```bash
 npm run deploy
 ```
+
+---
+
+## License
+
+This project is open source. Feel free to fork, modify, and use it for your own projects.
