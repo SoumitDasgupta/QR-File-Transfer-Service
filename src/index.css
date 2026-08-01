@@ -210,46 +210,6 @@ body {
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
-.code-display {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.code-digit {
-  width: 2.5rem;
-  height: 3rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.75rem;
-  font-weight: 800;
-  font-family: 'Courier New', monospace;
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid var(--panel-border);
-  border-radius: 8px;
-  color: var(--accent-color);
-}
-
-.code-input {
-  width: 100%;
-  max-width: 280px;
-  padding: 0.75rem 1rem;
-  font-size: 1.5rem;
-  font-weight: 700;
-  font-family: 'Courier New', monospace;
-  letter-spacing: 0.5rem;
-  text-align: center;
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid var(--panel-border);
-  border-radius: 8px;
-  color: var(--text-color);
-}
-
-.code-input:focus {
-  outline: none;
-  border-color: var(--accent-color);
-}
-
 .stats-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
