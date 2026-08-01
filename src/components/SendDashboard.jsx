@@ -33,11 +33,16 @@ export const SendDashboard = ({ onBack }) => {
     if (mode === 'fast') {
       setErrorMsg('');
       addLog('Initializing PeerJS...');
-      const peer = initPeer(
-        (id) => { setPeerId(id); addLog(`PeerJS Open. ID: ${id}`); }, 
+      const peerHandle = initPeer(
+        (id, peer) => {
+          setPeerId(id);
+          addLog(`PeerJS Open. Code: ${id}`);
+          attachConnectionHandler(peer);
+        },
         (err) => { setErrorMsg(err); addLog(`PeerJS Error: ${err}`); }
       );
-      peer.on('connection', (connection) => {
+
+      const attachConnectionHandler = (peer) => peer.on('connection', (connection) => {
         addLog(`Incoming connection from ${connection.peer}`);
         setConn(connection);
         const sendData = async () => {
@@ -93,7 +98,7 @@ export const SendDashboard = ({ onBack }) => {
       });
       return () => {
         addLog('Cleaning up PeerJS...');
-        peer.destroy();
+        peerHandle.destroy();
         setPeerId('');
       };
     }
@@ -209,10 +214,31 @@ export const SendDashboard = ({ onBack }) => {
       {file && mode === 'fast' && peerId && !conn && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center' }}>
           <div className="badge badge-fast">WebRTC Transfer</div>
-          <p style={{ textAlign: 'center', fontSize: '0.9rem' }}>Scan this QR with the receiver device to pair instantly.</p>
+          <p style={{ textAlign: 'center', fontSize: '0.9rem' }}>Scan this QR, or enter the code on the receiver device.</p>
           <div className="qr-container">
             <QRCodeSVG value={`WEBRTC|${peerId}`} size={200} level="M" />
           </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', width: '100%', color: '#64748b', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <div style={{ flex: 1, height: 1, background: 'var(--panel-border)' }} />
+            or
+            <div style={{ flex: 1, height: 1, background: 'var(--panel-border)' }} />
+          </div>
+
+          <div className="code-display">
+            {peerId.split('').map((digit, i) => (
+              <span key={i} className="code-digit">{digit}</span>
+            ))}
+          </div>
+
+          <button
+            className="btn"
+            style={{ fontSize: '0.8rem', padding: '0.5rem 1rem' }}
+            onClick={() => { navigator.clipboard?.writeText(peerId); }}
+          >
+            Copy Code
+          </button>
+
           <p className="pulse" style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Waiting for connection...</p>
         </div>
       )}
