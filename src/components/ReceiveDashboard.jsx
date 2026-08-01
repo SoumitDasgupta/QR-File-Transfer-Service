@@ -1,26 +1,33 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
-import { CheckCircle, Download, Camera, KeyRound } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Html5Qrcode } from "html5-qrcode";
+import { QRCodeSVG } from 'qrcode.react';
+import { Download, CheckCircle, Camera, QrCode, Keyboard } from 'lucide-react';
 import { reassembleFile } from '../utils/chunking';
-import { connectToPeer, initPeer } from '../utils/webrtc';
+import { initPeer, connectToPeer } from '../utils/webrtc';
 
 export const ReceiveDashboard = ({ onBack }) => {
   const [scannerInstance, setScannerInstance] = useState(null);
   const [scannedChunks, setScannedChunks] = useState(new Map());
   const [totalChunks, setTotalChunks] = useState(0);
   const [completedFile, setCompletedFile] = useState(null);
-
-  // How the receiver is pairing: 'scan' (camera) or 'code' (manual 6-digit entry)
-  const [entryMode, setEntryMode] = useState('scan');
-  const [codeInput, setCodeInput] = useState('');
-
-  // Fast Mode state
+  
   const [isFastMode, setIsFastMode] = useState(false);
+  const [peer, setPeer] = useState(null);
   const [conn, setConn] = useState(null);
   const [fastTransferProgress, setFastTransferProgress] = useState(0);
   const [receivingFileData, setReceivingFileData] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [logs, setLogs] = useState([]);
+  
+  // 'scan' (Camera), 'show' (QR), 'code' (Text)
+  const [pairingMode, setPairingMode] = useState('scan');
+  // 'generate' or 'enter' (for 'code' mode)
+  const [codeMode, setCodeMode] = useState('generate');
+  const [enteredCode, setEnteredCode] = useState('');
+
+  const pairingModeRef = useRef('scan');
+  const codeModeRef = useRef('generate');
+
   const addLog = (msg) => { console.log(msg); setLogs(prev => [...prev.slice(-4), msg]); };
   const isProcessingScan = useRef(false);
   const peerRef = useRef(null);
@@ -28,20 +35,98 @@ export const ReceiveDashboard = ({ onBack }) => {
   const expectedChunksRef = useRef(0);
   const [isPeerReady, setIsPeerReady] = useState(false);
 
+  const setupDataListener = (c) => {
+    let headerData = null;
+    c.on('data', (data) => {
+      if (data.type === 'header') {
+        addLog(`Received header: ${data.name} (${data.totalChunks} chunks)`);
+        headerData = { name: data.name, type: data.fileType, totalChunks: data.totalChunks };
+        setReceivingFileData(headerData);
+        chunksRef.current = {};
+        expectedChunksRef.current = data.totalChunks;
+      } else if (data.type === 'chunk') {
+        chunksRef.current[data.index] = data.buffer;
+        const receivedCount = Object.keys(chunksRef.current).length;
+        setFastTransferProgress(Math.round((receivedCount / expectedChunksRef.current) * 100));
+        
+        if (receivedCount === expectedChunksRef.current) {
+           addLog('All chunks received, reconstructing file...');
+           const orderedChunks = [];
+           for(let i=0; i<expectedChunksRef.current; i++) {
+             orderedChunks.push(chunksRef.current[i]);
+           }
+           const blob = new Blob(orderedChunks, { type: headerData?.type || 'application/octet-stream' });
+           setCompletedFile({ blob, fileName: headerData?.name || 'download' });
+           chunksRef.current = {};
+        }
+      }
+    });
+    c.on('error', (err) => { setErrorMsg(err.message || String(err)); addLog(`Conn Error: ${err.message || err}`); });
+  };
+
   useEffect(() => {
-    // Initialize WebRTC Peer for receiving
-    setErrorMsg('');
-    addLog('Initializing PeerJS...');
-    const peerHandle = initPeer(
-       (id, peer) => { setIsPeerReady(true); peerRef.current = peer; addLog('PeerJS Open.'); },
-       (err) => { setErrorMsg(err); addLog(`PeerJS Error: ${err}`); }
-    );
-    return () => { peerHandle.destroy(); peerRef.current = null; };
-  }, []);
+    pairingModeRef.current = pairingMode;
+  }, [pairingMode]);
+
+  useEffect(() => {
+    codeModeRef.current = codeMode;
+  }, [codeMode]);
+
+  useEffect(() => {
+    // Only auto-initialize peer if we are in 'show' mode, OR if we are in 'generate' code mode
+    let customId = null;
+    if (pairingMode === 'code' && codeMode === 'generate') {
+      customId = Math.random().toString(36).substring(2, 8).toUpperCase();
+    }
+    
+    // We only need a listening peer if we are 'show' OR 'generate'
+    if (pairingMode === 'show' || (pairingMode === 'code' && codeMode === 'generate')) {
+      setErrorMsg('');
+      setIsPeerReady(false);
+      addLog('Initializing PeerJS Server...');
+      const p = initPeer(
+         customId,
+         () => { setIsPeerReady(true); addLog('PeerJS Open.'); }, 
+         (err) => { 
+           // If custom ID is taken, it throws unavailable-id
+           if (err.type === 'unavailable-id') {
+              setErrorMsg('Code collision. Please try generating again.');
+           } else {
+              setErrorMsg(String(err)); 
+           }
+           addLog(`PeerJS Error: ${err}`); 
+         }
+      );
+      setPeer(p);
+      peerRef.current = p;
+
+      p.on('connection', (c) => {
+        if (pairingModeRef.current === 'show' || (pairingModeRef.current === 'code' && codeModeRef.current === 'generate')) {
+           addLog('Incoming connection received.');
+           setIsFastMode(true);
+           setConn(c);
+           setupDataListener(c);
+        }
+      });
+
+      return () => { p.destroy(); peerRef.current = null; };
+    } else {
+      // If we are 'scan' or 'enter' code, we only initialize a generic peer to use as a client
+      setErrorMsg('');
+      const p = initPeer(
+         null,
+         () => { setIsPeerReady(true); }, 
+         (err) => { setErrorMsg(String(err)); }
+      );
+      setPeer(p);
+      peerRef.current = p;
+      return () => { p.destroy(); peerRef.current = null; };
+    }
+  }, [pairingMode, codeMode]);
 
   useEffect(() => {
     let html5Qrcode;
-    if (!completedFile && !isFastMode && entryMode === 'scan') {
+    if (!completedFile && !isFastMode && pairingMode === 'scan') {
       html5Qrcode = new Html5Qrcode("reader");
       setScannerInstance(html5Qrcode);
       
@@ -59,16 +144,7 @@ export const ReceiveDashboard = ({ onBack }) => {
         html5Qrcode.stop().catch(console.error);
       }
     };
-  }, [completedFile, isFastMode, entryMode]);
-
-  const handleCodeSubmit = (e) => {
-    e.preventDefault();
-    const code = codeInput.trim();
-    if (code.length === 6 && !isProcessingScan.current) {
-      isProcessingScan.current = true;
-      initiateFastTransfer(code);
-    }
-  };
+  }, [completedFile, isFastMode, pairingMode]);
 
   const handleScan = (text) => {
     if (isProcessingScan.current) return;
@@ -105,6 +181,7 @@ export const ReceiveDashboard = ({ onBack }) => {
   };
 
   const initiateFastTransfer = (remoteId) => {
+    if (!remoteId) return;
     if (scannerInstance) {
       scannerInstance.stop().catch(console.error);
     }
@@ -117,31 +194,7 @@ export const ReceiveDashboard = ({ onBack }) => {
         addLog('DataChannel Open!');
         isConnected = true;
         setConn(c);
-        let headerData = null;
-        c.on('data', (data) => {
-          if (data.type === 'header') {
-            addLog(`Received header: ${data.name} (${data.totalChunks} chunks)`);
-            headerData = { name: data.name, type: data.fileType, totalChunks: data.totalChunks };
-            setReceivingFileData(headerData);
-            chunksRef.current = {};
-            expectedChunksRef.current = data.totalChunks;
-          } else if (data.type === 'chunk') {
-            chunksRef.current[data.index] = data.buffer;
-            const receivedCount = Object.keys(chunksRef.current).length;
-            setFastTransferProgress(Math.round((receivedCount / expectedChunksRef.current) * 100));
-            
-            if (receivedCount === expectedChunksRef.current) {
-               addLog('All chunks received, reconstructing file...');
-               const orderedChunks = [];
-               for(let i=0; i<expectedChunksRef.current; i++) {
-                 orderedChunks.push(chunksRef.current[i]);
-               }
-               const blob = new Blob(orderedChunks, { type: headerData?.type || 'application/octet-stream' });
-               setCompletedFile({ blob, fileName: headerData?.name || 'download' });
-               chunksRef.current = {};
-            }
-          }
-        });
+        setupDataListener(c);
       });
       connection.on('error', (err) => { setErrorMsg(err.message || String(err)); addLog(`Conn Error: ${err.message || err}`); });
       
@@ -184,75 +237,134 @@ export const ReceiveDashboard = ({ onBack }) => {
     <div className="glass-panel">
       <div className="header">
         <h2>Receive File</h2>
-        <p>{isFastMode ? 'WebRTC Fast Transfer Active' : 'Scan the QR Stream'}</p>
+        <p>{isFastMode ? 'WebRTC Fast Transfer Active' : 'Waiting for Sender'}</p>
       </div>
 
       {!completedFile && !isFastMode && (
+        <div className="mode-toggle" style={{ marginBottom: '1rem' }}>
+          <button 
+            className={pairingMode === 'scan' ? 'active' : ''} 
+            onClick={() => setPairingMode('scan')}
+          >
+            <Camera size={16} style={{marginRight: 4}}/> Scan QR
+          </button>
+          <button 
+            className={pairingMode === 'show' ? 'active' : ''} 
+            onClick={() => setPairingMode('show')}
+          >
+            <QrCode size={16} style={{marginRight: 4}}/> Show QR
+          </button>
+          <button 
+            className={pairingMode === 'code' ? 'active' : ''} 
+            onClick={() => setPairingMode('code')}
+          >
+            <Keyboard size={16} style={{marginRight: 4}}/> Use Code
+          </button>
+        </div>
+      )}
+
+      {!completedFile && !isFastMode && pairingMode === 'scan' && (
         <>
-          <div className="mode-toggle">
-            <button
-              className={entryMode === 'scan' ? 'active' : ''}
-              onClick={() => setEntryMode('scan')}
+          <div className="camera-container">
+            <div id="reader"></div>
+          </div>
+          
+          {totalChunks > 0 && (
+            <div style={{ marginTop: '1rem', width: '100%' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
+                <span>Optical Assembly</span>
+                <span>{scannedChunks.size} / {totalChunks} chunks</span>
+              </div>
+              <div className="progress-bar-container">
+                <div className="progress-bar" style={{ width: `${(scannedChunks.size / totalChunks) * 100}%` }}></div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {!completedFile && !isFastMode && pairingMode === 'show' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center' }}>
+          <p style={{ textAlign: 'center', fontSize: '0.9rem' }}>Scan this QR with the sender device to pair instantly.</p>
+          {isPeerReady && peerRef.current?.id ? (
+            <div className="qr-container">
+              <QRCodeSVG value={`WEBRTC|${peerRef.current.id}`} size={200} level="M" />
+            </div>
+          ) : (
+            <div style={{ height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <p className="pulse">Generating QR Code...</p>
+            </div>
+          )}
+          <p className="pulse" style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Waiting for connection...</p>
+        </div>
+      )}
+
+      {!completedFile && !isFastMode && pairingMode === 'code' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center', width: '100%' }}>
+          <div className="mode-toggle" style={{ marginBottom: '1rem', width: '100%' }}>
+            <button 
+              className={codeMode === 'generate' ? 'active' : ''} 
+              onClick={() => setCodeMode('generate')}
+              style={{ flex: 1 }}
             >
-              <Camera size={16} style={{ marginRight: 4 }} /> Scan QR
+              Generate Code
             </button>
-            <button
-              className={entryMode === 'code' ? 'active' : ''}
-              onClick={() => setEntryMode('code')}
+            <button 
+              className={codeMode === 'enter' ? 'active' : ''} 
+              onClick={() => setCodeMode('enter')}
+              style={{ flex: 1 }}
             >
-              <KeyRound size={16} style={{ marginRight: 4 }} /> Enter Code
+              Enter Code
             </button>
           </div>
 
-          {entryMode === 'scan' && (
-            <>
-              <div className="camera-container">
-                <div id="reader"></div>
-              </div>
-
-              {totalChunks > 0 && (
-                <div style={{ marginTop: '1rem', width: '100%' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
-                    <span>Optical Assembly</span>
-                    <span>{scannedChunks.size} / {totalChunks} chunks</span>
-                  </div>
-                  <div className="progress-bar-container">
-                    <div className="progress-bar" style={{ width: `${(scannedChunks.size / totalChunks) * 100}%` }}></div>
-                  </div>
-                </div>
-              )}
-            </>
+          {codeMode === 'generate' && (
+             <div style={{ textAlign: 'center', width: '100%' }}>
+               <p style={{ fontSize: '0.9rem', marginBottom: '1rem' }}>Enter this 6-character code on the sender device.</p>
+               {isPeerReady && peerRef.current?.id ? (
+                 <div style={{ background: 'rgba(255,255,255,0.1)', padding: '2rem', borderRadius: '12px', fontSize: '3rem', letterSpacing: '0.5rem', fontWeight: 'bold' }}>
+                   {peerRef.current.id}
+                 </div>
+               ) : (
+                 <p className="pulse">Generating code...</p>
+               )}
+               <p className="pulse" style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '1rem' }}>Waiting for connection...</p>
+             </div>
           )}
 
-          {entryMode === 'code' && (
-            <form
-              onSubmit={handleCodeSubmit}
-              style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center', padding: '1.5rem 0' }}
-            >
-              <p style={{ textAlign: 'center', fontSize: '0.9rem', color: '#94a3b8' }}>
-                Enter the 6-digit code shown on the sender's screen.
-              </p>
-              <input
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={6}
-                autoFocus
-                className="code-input"
-                placeholder="------"
-                value={codeInput}
-                onChange={(e) => setCodeInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              />
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={codeInput.length !== 6 || !isPeerReady}
-              >
-                {isPeerReady ? 'Connect' : 'Preparing...'}
-              </button>
-            </form>
+          {codeMode === 'enter' && (
+             <div style={{ textAlign: 'center', width: '100%' }}>
+               <p style={{ fontSize: '0.9rem', marginBottom: '1rem' }}>Type the 6-character code shown on the sender device.</p>
+               <input 
+                 type="text" 
+                 maxLength={6}
+                 value={enteredCode}
+                 onChange={(e) => setEnteredCode(e.target.value.toUpperCase())}
+                 style={{ 
+                   width: '100%', 
+                   padding: '1rem', 
+                   fontSize: '2rem', 
+                   textAlign: 'center', 
+                   letterSpacing: '0.5rem', 
+                   borderRadius: '8px', 
+                   border: '2px solid rgba(255,255,255,0.2)', 
+                   background: 'rgba(0,0,0,0.2)', 
+                   color: 'white', 
+                   textTransform: 'uppercase' 
+                 }} 
+                 placeholder="------"
+               />
+               <button 
+                 className="btn btn-primary" 
+                 style={{ marginTop: '1rem', width: '100%' }}
+                 disabled={enteredCode.length !== 6 || !isPeerReady}
+                 onClick={() => initiateFastTransfer(enteredCode)}
+               >
+                 Connect
+               </button>
+             </div>
           )}
-        </>
+        </div>
       )}
 
       {isFastMode && !conn && !completedFile && (
@@ -273,7 +385,7 @@ export const ReceiveDashboard = ({ onBack }) => {
 
       {errorMsg && (
         <div style={{ textAlign: 'center', padding: '1rem', color: 'var(--error-color)', background: 'rgba(255,0,0,0.1)', borderRadius: '8px', marginTop: '1rem' }}>
-          <p><strong>Connection Error:</strong> {errorMsg}</p>
+          <p><strong>Error:</strong> {errorMsg}</p>
         </div>
       )}
 
