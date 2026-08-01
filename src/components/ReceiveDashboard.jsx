@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { CheckCircle, Download, Camera } from 'lucide-react';
+import { CheckCircle, Download, Camera, KeyRound } from 'lucide-react';
 import { reassembleFile } from '../utils/chunking';
 import { connectToPeer, initPeer } from '../utils/webrtc';
 
@@ -9,10 +9,13 @@ export const ReceiveDashboard = ({ onBack }) => {
   const [scannedChunks, setScannedChunks] = useState(new Map());
   const [totalChunks, setTotalChunks] = useState(0);
   const [completedFile, setCompletedFile] = useState(null);
-  
+
+  // How the receiver is pairing: 'scan' (camera) or 'code' (manual 6-digit entry)
+  const [entryMode, setEntryMode] = useState('scan');
+  const [codeInput, setCodeInput] = useState('');
+
   // Fast Mode state
   const [isFastMode, setIsFastMode] = useState(false);
-  const [peer, setPeer] = useState(null);
   const [conn, setConn] = useState(null);
   const [fastTransferProgress, setFastTransferProgress] = useState(0);
   const [receivingFileData, setReceivingFileData] = useState(null);
@@ -29,18 +32,16 @@ export const ReceiveDashboard = ({ onBack }) => {
     // Initialize WebRTC Peer for receiving
     setErrorMsg('');
     addLog('Initializing PeerJS...');
-    const p = initPeer(
-       () => { setIsPeerReady(true); addLog('PeerJS Open.'); }, 
+    const peerHandle = initPeer(
+       (id, peer) => { setIsPeerReady(true); peerRef.current = peer; addLog('PeerJS Open.'); },
        (err) => { setErrorMsg(err); addLog(`PeerJS Error: ${err}`); }
     );
-    setPeer(p);
-    peerRef.current = p;
-    return () => { p.destroy(); peerRef.current = null; };
+    return () => { peerHandle.destroy(); peerRef.current = null; };
   }, []);
 
   useEffect(() => {
     let html5Qrcode;
-    if (!completedFile && !isFastMode) {
+    if (!completedFile && !isFastMode && entryMode === 'scan') {
       html5Qrcode = new Html5Qrcode("reader");
       setScannerInstance(html5Qrcode);
       
@@ -58,7 +59,16 @@ export const ReceiveDashboard = ({ onBack }) => {
         html5Qrcode.stop().catch(console.error);
       }
     };
-  }, [completedFile, isFastMode]);
+  }, [completedFile, isFastMode, entryMode]);
+
+  const handleCodeSubmit = (e) => {
+    e.preventDefault();
+    const code = codeInput.trim();
+    if (code.length === 6 && !isProcessingScan.current) {
+      isProcessingScan.current = true;
+      initiateFastTransfer(code);
+    }
+  };
 
   const handleScan = (text) => {
     if (isProcessingScan.current) return;
@@ -179,20 +189,68 @@ export const ReceiveDashboard = ({ onBack }) => {
 
       {!completedFile && !isFastMode && (
         <>
-          <div className="camera-container">
-            <div id="reader"></div>
+          <div className="mode-toggle">
+            <button
+              className={entryMode === 'scan' ? 'active' : ''}
+              onClick={() => setEntryMode('scan')}
+            >
+              <Camera size={16} style={{ marginRight: 4 }} /> Scan QR
+            </button>
+            <button
+              className={entryMode === 'code' ? 'active' : ''}
+              onClick={() => setEntryMode('code')}
+            >
+              <KeyRound size={16} style={{ marginRight: 4 }} /> Enter Code
+            </button>
           </div>
-          
-          {totalChunks > 0 && (
-            <div style={{ marginTop: '1rem', width: '100%' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
-                <span>Optical Assembly</span>
-                <span>{scannedChunks.size} / {totalChunks} chunks</span>
+
+          {entryMode === 'scan' && (
+            <>
+              <div className="camera-container">
+                <div id="reader"></div>
               </div>
-              <div className="progress-bar-container">
-                <div className="progress-bar" style={{ width: `${(scannedChunks.size / totalChunks) * 100}%` }}></div>
-              </div>
-            </div>
+
+              {totalChunks > 0 && (
+                <div style={{ marginTop: '1rem', width: '100%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
+                    <span>Optical Assembly</span>
+                    <span>{scannedChunks.size} / {totalChunks} chunks</span>
+                  </div>
+                  <div className="progress-bar-container">
+                    <div className="progress-bar" style={{ width: `${(scannedChunks.size / totalChunks) * 100}%` }}></div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {entryMode === 'code' && (
+            <form
+              onSubmit={handleCodeSubmit}
+              style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center', padding: '1.5rem 0' }}
+            >
+              <p style={{ textAlign: 'center', fontSize: '0.9rem', color: '#94a3b8' }}>
+                Enter the 6-digit code shown on the sender's screen.
+              </p>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                autoFocus
+                className="code-input"
+                placeholder="------"
+                value={codeInput}
+                onChange={(e) => setCodeInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              />
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={codeInput.length !== 6 || !isPeerReady}
+              >
+                {isPeerReady ? 'Connect' : 'Preparing...'}
+              </button>
+            </form>
           )}
         </>
       )}
