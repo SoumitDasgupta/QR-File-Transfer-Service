@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
-  base: '/QR-FILE_TRANSFER/',
+  base: '/QR-File-Transfer-Service/',
   plugins: [
     react(),
     VitePWA({ 
